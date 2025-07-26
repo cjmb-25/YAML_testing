@@ -1,0 +1,33 @@
+! This script is for configuring a switch on iOS devices.
+enable
+configure terminal
+no ip domain-lookup
+no cdp run
+hostname "example_hostname"
+banner motd #"example_banner"#
+ip domain-name "example.com"
+logging on
+enable secret "password"
+username "username" privilege 0 secret "password"
+crypto key generate rsa general-keys modulus 1024
+ip ssh version 2
+ip ssh time-out 120
+ip ssh authentication-retries 3
+line console 0
+motd-banner
+login local
+exec-timeout 3 0
+privilege level 0
+logging synchronous
+exit
+line vty 0 15
+motd-banner
+login local
+transport input ssh
+exec-timeout 3 0
+privilege level 0
+logging synchronous
+exit
+service password-encryption
+exit
+copy running-config startup-config
