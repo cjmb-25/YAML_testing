@@ -1,71 +1,61 @@
 ---
-- name: Push baseline config to Cisco IOS switches
-  hosts: switches
+- name: Basic Cisco IOS Configuration
+  hosts: routers
   gather_facts: no
   connection: network_cli
+
   vars:
-    # Global Settings
-    domain_lookup: false
-    domain_name: "<string.com>"
-    switch_hostname: "<string>"
-    motd_banner: "<string>"
-
-    # Security
-    enable_secret: "<string>"
-    users:
-      - username: "<username>"
-        privilege: 0
-        secret: "<password>"
+    hostname: "example_hostname"
+    domain_name: "example.com"
+    motd_banner: "example_banner"
+    enable_secret: "password"
+    local_users:
+      - name: "username"
+        secret: "password"
     rsa_modulus: 1024
-
-    # SSH
     ssh_version: 2
     ssh_timeout: 120
     ssh_auth_retries: 3
-
-    # Line-based settings
-    console:
-      number: 0
-      exec_timeout: [3, 0]
-      privilege: 0
-      logging_sync: yes
-    vty:
-      range: "0 15"
-      exec_timeout: [3, 0]
-      privilege: 0
-      logging_sync: yes
+    console_exec_timeout: [3, 0]
+    vty_range: "0 15"
+    line_privilege: 0
 
   tasks:
-    - name: Configure domain lookup, domain name, hostname & MOTD
+    - name: Disable DNS lookup and CDP
       cisco.ios.ios_config:
         lines:
-          - "{{ 'no ip domain-lookup' if not domain_lookup else 'ip domain-lookup' }}"
+          - no ip domain-lookup
+          - no cdp run
+
+    - name: Set hostname, domain name and MOTD banner
+      cisco.ios.ios_config:
+        lines:
+          - hostname {{ hostname }}
           - ip domain name {{ domain_name }}
-          - hostname {{ switch_hostname }}
-          - banner motd ^C{{ motd_banner }}^C
+          - banner motd #{{ motd_banner }}#
 
     - name: Enable system logging
       cisco.ios.ios_config:
         lines:
           - logging on
 
-    - name: Set enable secret
+    - name: Configure enable secret
       cisco.ios.ios_config:
         lines:
           - enable secret {{ enable_secret }}
 
-    - name: Create local users
+    - name: Create local user(s)
       cisco.ios.ios_config:
         lines:
-          - username {{ item.username }} privilege {{ item.privilege }} secret {{ item.secret }}
-      loop: "{{ users }}"
+          - username {{ item.name }} privilege 0 secret {{ item.secret }}
+      loop: "{{ local_users }}"
 
     - name: Generate RSA key for SSH
       cisco.ios.ios_config:
         lines:
           - crypto key generate rsa general-keys modulus {{ rsa_modulus }}
 
-    - name: Harden SSH
+    - name: Harden SSH parameters
       cisco.ios.ios_config:
         lines:
           - ip ssh version {{ ssh_version }}
@@ -75,29 +65,29 @@
     - name: Configure console line
       cisco.ios.ios_config:
         parents:
-          - "line console {{ console.number }}"
+          - line console 0
         lines:
           - login local
-          - exec-timeout {{ console.exec_timeout[0] }} {{ console.exec_timeout[1] }}
-          - privilege level {{ console.privilege }}
+          - exec-timeout {{ console_exec_timeout[0] }} {{ console_exec_timeout[1] }}
+          - privilege level {{ line_privilege }}
           - logging synchronous
 
     - name: Configure VTY lines
       cisco.ios.ios_config:
         parents:
-          - "line vty {{ vty.range }}"
+          - line vty {{ vty_range }}
         lines:
           - login local
           - transport input ssh
-          - exec-timeout {{ vty.exec_timeout[0] }} {{ vty.exec_timeout[1] }}
-          - privilege level {{ vty.privilege }}
+          - exec-timeout {{ console_exec_timeout[0] }} {{ console_exec_timeout[1] }}
+          - privilege level {{ line_privilege }}
           - logging synchronous
 
-    - name: Encrypt all plain-text passwords
+    - name: Encrypt plaintext passwords
       cisco.ios.ios_config:
         lines:
           - service password-encryption
 
-    - name: Save running config to startup
+    - name: Save running-config to startup-config
       cisco.ios.ios_config:
         save_when: modified
