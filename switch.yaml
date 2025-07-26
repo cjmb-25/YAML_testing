@@ -1,47 +1,103 @@
-# This YAML file is used to configure a network switch with various settings.
-hostname: "<string>"
-ip:
-  domain_lookup: false
-  domain_name: "<string.com>"
-  ssh:
-    version: 2.0
-    time-out: 120
-    authentication-retries: 3
-banner:
-  motd: "<string>"
-logging: true
-user:
-  name: "<username>"
-  privilege: 0
-  secret: "<password>"
-crypto:
-  key:
-    generate:
-      rsa:
-        modulus: 1024
-line:
-  console:
-    number: 0
-    motd_banner: true
-    login: local
-    exec_timeout:
-      minutes: 3
-      seconds: 0
-    privilege_level: 0
-    logging_synchronous: true
-  vty:
-    range: "0-15"
-    motd_banner: true
-    login: local
-    transport:
-      input: ssh
-    exec_timeout:
-        minutes: 3
-        seconds: 0
-    privilege_level: 0
-    logging_synchronous: true
-service:
-  password-encryption: true
-save:
-  config: true
-  file: "startup-config"
+---
+- name: Push baseline config to Cisco IOS switches
+  hosts: switches
+  gather_facts: no
+  connection: network_cli
+  vars:
+    # Global Settings
+    domain_lookup: false
+    domain_name: "<string.com>"
+    switch_hostname: "<string>"
+    motd_banner: "<string>"
+
+    # Security
+    enable_secret: "<string>"
+    users:
+      - username: "<username>"
+        privilege: 0
+        secret: "<password>"
+    rsa_modulus: 1024
+
+    # SSH
+    ssh_version: 2
+    ssh_timeout: 120
+    ssh_auth_retries: 3
+
+    # Line-based settings
+    console:
+      number: 0
+      exec_timeout: [3, 0]
+      privilege: 0
+      logging_sync: yes
+    vty:
+      range: "0 15"
+      exec_timeout: [3, 0]
+      privilege: 0
+      logging_sync: yes
+
+  tasks:
+    - name: Configure domain lookup, domain name, hostname & MOTD
+      cisco.ios.ios_config:
+        lines:
+          - "{{ 'no ip domain-lookup' if not domain_lookup else 'ip domain-lookup' }}"
+          - ip domain name {{ domain_name }}
+          - hostname {{ switch_hostname }}
+          - banner motd ^C{{ motd_banner }}^C
+
+    - name: Enable system logging
+      cisco.ios.ios_config:
+        lines:
+          - logging on
+
+    - name: Set enable secret
+      cisco.ios.ios_config:
+        lines:
+          - enable secret {{ enable_secret }}
+
+    - name: Create local users
+      cisco.ios.ios_config:
+        lines:
+          - username {{ item.username }} privilege {{ item.privilege }} secret {{ item.secret }}
+      loop: "{{ users }}"
+
+    - name: Generate RSA key for SSH
+      cisco.ios.ios_config:
+        lines:
+          - crypto key generate rsa general-keys modulus {{ rsa_modulus }}
+
+    - name: Harden SSH
+      cisco.ios.ios_config:
+        lines:
+          - ip ssh version {{ ssh_version }}
+          - ip ssh time-out {{ ssh_timeout }}
+          - ip ssh authentication-retries {{ ssh_auth_retries }}
+
+    - name: Configure console line
+      cisco.ios.ios_config:
+        parents:
+          - "line console {{ console.number }}"
+        lines:
+          - login local
+          - exec-timeout {{ console.exec_timeout[0] }} {{ console.exec_timeout[1] }}
+          - privilege level {{ console.privilege }}
+          - logging synchronous
+
+    - name: Configure VTY lines
+      cisco.ios.ios_config:
+        parents:
+          - "line vty {{ vty.range }}"
+        lines:
+          - login local
+          - transport input ssh
+          - exec-timeout {{ vty.exec_timeout[0] }} {{ vty.exec_timeout[1] }}
+          - privilege level {{ vty.privilege }}
+          - logging synchronous
+
+    - name: Encrypt all plain-text passwords
+      cisco.ios.ios_config:
+        lines:
+          - service password-encryption
+
+    - name: Save running config to startup
+      cisco.ios.ios_config:
+        save_when: modified
